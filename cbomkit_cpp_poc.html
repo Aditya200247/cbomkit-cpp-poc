@@ -1,0 +1,1761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CBOMkit C/C++ PoC — OpenSSL Detection + OPA Policy Engine</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,600;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2128;
+    --border: #30363d;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --warn: #e3b341;
+    --danger: #f85149;
+    --muted: #8b949e;
+    --text: #e6edf3;
+    --text2: #c9d1d9;
+    --tag-blue: #1f6feb;
+    --tag-green: #238636;
+    --tag-yellow: #9e6a03;
+    --tag-red: #da3633;
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-display: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .header-logo svg { flex-shrink: 0; }
+  .header-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: -0.5px;
+    color: var(--text);
+  }
+  .header-subtitle {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 1px;
+  }
+  .header-badge {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .badge {
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border: 1px solid;
+  }
+  .badge-green { color: var(--accent2); border-color: var(--tag-green); background: rgba(35,134,54,0.1); }
+  .badge-blue { color: var(--accent); border-color: var(--tag-blue); background: rgba(31,111,235,0.1); }
+
+  /* ── LAYOUT ── */
+  .container { display: flex; height: calc(100vh - 57px); }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: 260px;
+    min-width: 260px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .sidebar-section { padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .sidebar-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 0 16px 8px;
+  }
+  .snippet-btn {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 8px 16px;
+    cursor: pointer;
+    color: var(--text2);
+    text-align: left;
+    transition: background 0.12s;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .snippet-btn:hover { background: var(--surface2); }
+  .snippet-btn.active { background: var(--surface2); color: var(--accent); }
+  .snippet-btn .sicon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    margin-top: 1px;
+    opacity: 0.7;
+  }
+  .snippet-btn.active .sicon { opacity: 1; }
+  .snippet-name { font-weight: 600; font-size: 12px; }
+  .snippet-desc { font-size: 10px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+
+  /* ── MAIN ── */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── TABS ── */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    padding: 0 16px;
+    gap: 0;
+  }
+  .tab-btn {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 12px 14px 10px;
+    transition: color 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tab-btn:hover { color: var(--text2); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .tab-btn.active .tab-dot { opacity: 1; }
+
+  /* ── PANELS ── */
+  .panel { display: none; flex: 1; overflow: hidden; }
+  .panel.active { display: flex; }
+
+  /* ── EDITOR PANEL ── */
+  .editor-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    min-width: 0;
+  }
+  .pane-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    gap: 8px;
+  }
+  .pane-header .filename {
+    font-family: var(--font-mono);
+    color: var(--text2);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .run-btn {
+    background: var(--tag-green);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 5px 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.12s, transform 0.08s;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .run-btn:hover { background: #2ea043; transform: translateY(-1px); }
+  .run-btn:active { transform: translateY(0); }
+  .run-btn.running { background: var(--tag-blue); }
+
+  textarea#code-editor {
+    flex: 1;
+    background: var(--bg);
+    color: var(--text);
+    border: none;
+    outline: none;
+    resize: none;
+    padding: 16px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    tab-size: 2;
+    overflow-y: auto;
+  }
+
+  /* ── RESULTS PANE ── */
+  .results-pane {
+    width: 420px;
+    min-width: 300px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .results-scroll { flex: 1; overflow-y: auto; padding: 12px; }
+
+  /* ── CBOM ASSET CARD ── */
+  .asset-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+    animation: fadeSlide 0.25s ease forwards;
+    opacity: 0;
+  }
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .asset-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .asset-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text);
+    flex: 1;
+  }
+  .asset-type-tag {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .tag-cipher { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .tag-hash { background: rgba(63,185,80,0.15); color: var(--accent2); }
+  .tag-mac { background: rgba(227,179,65,0.15); color: var(--warn); }
+  .tag-pkey { background: rgba(248,81,73,0.15); color: var(--danger); }
+  .tag-kdf { background: rgba(210,153,255,0.15); color: #d2a8ff; }
+  .tag-rng { background: rgba(255,166,87,0.15); color: #ffa657; }
+  .tag-tls { background: rgba(255,123,114,0.15); color: #ff7b72; }
+  .pq-icon { font-size: 14px; }
+
+  .asset-body { padding: 10px 12px; }
+  .asset-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 5px;
+    font-size: 11px;
+  }
+  .asset-row-key { color: var(--muted); min-width: 90px; }
+  .asset-row-val { color: var(--text2); font-family: var(--font-mono); }
+  .evidence-link { color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 11px; }
+
+  /* ── OPA PANEL ── */
+  .opa-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .policy-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 12px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .policy-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    animation: fadeSlide 0.25s ease forwards;
+    opacity: 0;
+  }
+  .policy-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .policy-name {
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .policy-status {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 3px;
+    text-transform: uppercase;
+  }
+  .status-pass { background: rgba(63,185,80,0.15); color: var(--accent2); }
+  .status-fail { background: rgba(248,81,73,0.15); color: var(--danger); }
+  .status-warn { background: rgba(227,179,65,0.15); color: var(--warn); }
+  .policy-desc { font-size: 10px; color: var(--muted); line-height: 1.5; }
+  .policy-findings { list-style: none; margin-top: 4px; }
+  .policy-finding {
+    font-size: 10px;
+    color: var(--text2);
+    padding: 3px 0;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    gap: 5px;
+    line-height: 1.4;
+  }
+  .finding-bullet { color: var(--danger); flex-shrink: 0; margin-top: 1px; }
+  .finding-bullet-ok { color: var(--accent2); flex-shrink: 0; margin-top: 1px; }
+
+  /* ── RESEARCH PANEL ── */
+  .research-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+    align-content: start;
+  }
+  .lib-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: fadeSlide 0.3s ease forwards;
+    opacity: 0;
+  }
+  .lib-header { display: flex; align-items: center; gap: 10px; }
+  .lib-name { font-family: var(--font-display); font-weight: 700; font-size: 16px; }
+  .lib-rec {
+    padding: 3px 9px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: auto;
+  }
+  .rec-green { background: rgba(63,185,80,0.15); color: var(--accent2); border: 1px solid rgba(63,185,80,0.3); }
+  .rec-yellow { background: rgba(227,179,65,0.15); color: var(--warn); border: 1px solid rgba(227,179,65,0.3); }
+  .rec-red { background: rgba(248,81,73,0.15); color: var(--danger); border: 1px solid rgba(248,81,73,0.3); }
+  .lib-style { font-size: 10px; color: var(--muted); }
+  .lib-detail { font-size: 11px; color: var(--text2); line-height: 1.6; }
+  .lib-metric-row { display: flex; gap: 10px; }
+  .lib-metric {
+    flex: 1;
+    background: var(--surface2);
+    border-radius: 4px;
+    padding: 8px;
+    text-align: center;
+  }
+  .lib-metric-val { font-size: 18px; font-weight: 700; color: var(--accent); }
+  .lib-metric-label { font-size: 9px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .lib-apis { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+  .api-chip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 9px;
+    font-family: var(--font-mono);
+    color: var(--muted);
+  }
+  .api-chip.covered { color: var(--accent2); border-color: rgba(63,185,80,0.3); }
+
+  /* ── CBOM JSON PANEL ── */
+  .json-panel {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .json-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    background: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.7;
+  }
+  .json-key { color: #79c0ff; }
+  .json-string { color: #a5d6ff; }
+  .json-num { color: #ffa657; }
+  .json-bool { color: var(--accent2); }
+  .json-null { color: var(--muted); }
+
+  /* ── EMPTY STATE ── */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--muted);
+    padding: 40px;
+    text-align: center;
+  }
+  .empty-icon { font-size: 40px; opacity: 0.4; }
+  .empty-title { font-size: 14px; color: var(--text2); font-weight: 600; }
+  .empty-desc { font-size: 11px; max-width: 260px; line-height: 1.6; }
+
+  /* ── STAT BAR ── */
+  .stat-bar {
+    background: var(--surface2);
+    border-top: 1px solid var(--border);
+    padding: 7px 14px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 11px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .stat-item { display: flex; align-items: center; gap: 5px; }
+  .stat-num { color: var(--text); font-weight: 700; }
+  .stat-sep { color: var(--border); }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ── TOAST ── */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 16px;
+    font-size: 12px;
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+    z-index: 999;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  /* ── RULE HIGHLIGHT ── */
+  .rule-preview {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .rule-preview-header {
+    padding: 6px 12px;
+    background: rgba(88,166,255,0.06);
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .rule-preview pre {
+    padding: 10px 12px;
+    font-size: 11px;
+    overflow-x: auto;
+    color: var(--text2);
+  }
+
+  /* ── LINE HIGHLIGHT ── */
+  .hl-line { background: rgba(88,166,255,0.07); display: inline-block; width: 100%; margin: 0 -12px; padding: 0 12px; }
+  .kw { color: #ff7b72; }
+  .type { color: #ffa657; }
+  .fn { color: #d2a8ff; }
+  .str { color: #a5d6ff; }
+  .comment { color: #8b949e; font-style: italic; }
+  .num { color: #79c0ff; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-logo">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+      <rect width="28" height="28" rx="6" fill="#1f6feb"/>
+      <path d="M7 14l5 5 9-10" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="14" cy="14" r="11" stroke="white" stroke-width="1.5" fill="none" opacity="0.3"/>
+    </svg>
+    <div>
+      <div class="header-title">CBOMkit C/C++ PoC</div>
+      <div class="header-subtitle">OpenSSL Detection · CBOM Generation · OPA Policy Evaluation</div>
+    </div>
+  </div>
+  <div class="header-badge">
+    <span class="badge badge-blue">LFX 2026 Summer</span>
+    <span class="badge badge-green">sonar-cryptography</span>
+  </div>
+</div>
+
+<!-- LAYOUT -->
+<div class="container">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">C/C++ Fixtures</div>
+
+      <button class="snippet-btn active" onclick="loadSnippet('evp_cipher')" id="btn-evp_cipher">
+        <svg class="sicon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+        <div>
+          <div class="snippet-name">EVP Cipher (AES-GCM)</div>
+          <div class="snippet-desc">Symmetric encryption via EVP_EncryptInit_ex — the canonical OpenSSL 3.x EVP path</div>
+        </div>
+      </button>
+
+      <button class="snippet-btn" onclick="loadSnippet('evp_hash')" id="btn-evp_hash">
+        <svg class="sicon" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h12a1 1 0 010 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 010 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h7a1 1 0 010 2H4a1 1 0 01-1-1z"/></svg>
+        <div>
+          <div class="snippet-name">EVP Digest (SHA-256)</div>
+          <div class="snippet-desc">Hash function detection via EVP_DigestInit_ex and legacy SHA256_Init APIs</div>
+        </div>
+      </button>
+
+      <button class="snippet-btn" onclick="loadSnippet('hmac')" id="btn-hmac">
+        <svg class="sicon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+        <div>
+          <div class="snippet-name">HMAC + KDF</div>
+          <div class="snippet-desc">HMAC_Init_ex for MAC and PKCS5_PBKDF2_HMAC for key derivation</div>
+        </div>
+      </button>
+
+      <button class="snippet-btn" onclick="loadSnippet('rsa_pkey')" id="btn-rsa_pkey">
+        <svg class="sicon" viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/><path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/></svg>
+        <div>
+          <div class="snippet-name">RSA + ECDSA Sign</div>
+          <div class="snippet-desc">EVP_PKEY asymmetric signing with RSA-2048 and EC P-256 key generation</div>
+        </div>
+      </button>
+
+      <button class="snippet-btn" onclick="loadSnippet('tls_ctx')" id="btn-tls_ctx">
+        <svg class="sicon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.083 9h1.946c.089-1.546.383-2.97.837-4.118A6.004 6.004 0 004.083 9zM10 2a8 8 0 100 16A8 8 0 0010 2zm0 2c-.076 0-.232.032-.465.262-.238.234-.497.623-.737 1.182-.389.907-.673 2.142-.766 3.556h3.936c-.093-1.414-.377-2.649-.766-3.556-.24-.56-.5-.948-.737-1.182C10.232 4.032 10.076 4 10 4zm3.971 5c-.089-1.546-.383-2.97-.837-4.118A6.004 6.004 0 0115.917 9h-1.946zm-2.003 2H8.032c.093 1.414.377 2.649.766 3.556.24.56.5.948.737 1.182.233.23.389.262.465.262.076 0 .232-.032.465-.262.238-.234.498-.623.737-1.182.389-.907.673-2.142.766-3.556zm1.166 4.118c.454-1.147.748-2.572.837-4.118h1.946a6.004 6.004 0 01-2.783 4.118zm-6.268 0C6.412 13.97 6.118 12.546 6.03 11H4.083a6.004 6.004 0 002.783 4.118z" clip-rule="evenodd"/></svg>
+        <div>
+          <div class="snippet-name">TLS / SSL Context</div>
+          <div class="snippet-desc">SSL_CTX_set_cipher_list, SSL_CTX_set_min_proto_version — libssl coverage</div>
+        </div>
+      </button>
+
+      <button class="snippet-btn" onclick="loadSnippet('weak_crypto')" id="btn-weak_crypto">
+        <svg class="sicon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+        <div>
+          <div class="snippet-name">Weak / Deprecated</div>
+          <div class="snippet-desc">MD5, DES, RC4 — weak algorithms that should trigger OPA policy violations</div>
+        </div>
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Detection Engine</div>
+      <div style="padding: 8px 16px 4px; font-size: 10px; color: var(--muted); line-height: 1.7;">
+        Rules loaded: <span style="color:var(--accent2); font-weight:700;">42</span><br/>
+        OpenSSL EVP: <span style="color:var(--text2);">28 rules</span><br/>
+        libssl TLS: <span style="color:var(--text2);">8 rules</span><br/>
+        Legacy APIs: <span style="color:var(--text2);">6 rules</span><br/>
+        <br/>
+        Engine: <span style="color:var(--accent);">CppDetectionEngine</span><br/>
+        Parser: <span style="color:var(--text2);">sonar-cxx 2.3.0</span><br/>
+        AST types: <span style="color:var(--text2);">CppTree, CppSymbol</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">OPA Policies</div>
+      <div style="padding: 8px 16px 4px; font-size: 10px; color: var(--muted); line-height: 1.7;">
+        <span style="color:var(--accent2);">●</span> quantum_safe.rego<br/>
+        <span style="color:var(--accent2);">●</span> weak_cipher.rego<br/>
+        <span style="color:var(--accent2);">●</span> weak_hash.rego<br/>
+        <span style="color:var(--accent2);">●</span> small_key.rego<br/>
+        <span style="color:var(--accent2);">●</span> tls_minimum.rego<br/>
+        <span style="color:var(--warn);">●</span> fips_module.rego<br/>
+        <span style="color:var(--warn);">●</span> pqc_hybrid.rego
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main">
+    <!-- TABS -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('scanner')" id="tab-scanner">
+        <div class="tab-dot"></div>
+        Scanner
+      </button>
+      <button class="tab-btn" onclick="switchTab('cbom')" id="tab-cbom">
+        <div class="tab-dot"></div>
+        CBOM Output
+      </button>
+      <button class="tab-btn" onclick="switchTab('opa')" id="tab-opa">
+        <div class="tab-dot"></div>
+        OPA Policies
+      </button>
+      <button class="tab-btn" onclick="switchTab('research')" id="tab-research">
+        <div class="tab-dot"></div>
+        Library Research
+      </button>
+      <button class="tab-btn" onclick="switchTab('rules')" id="tab-rules">
+        <div class="tab-dot"></div>
+        Detection Rules
+      </button>
+    </div>
+
+    <!-- SCANNER PANEL -->
+    <div class="panel active" id="panel-scanner" style="flex-direction:column;">
+      <div style="display:flex;flex:1;overflow:hidden;">
+        <div class="editor-pane">
+          <div class="pane-header">
+            <span>C/C++ Source File</span>
+            <span class="filename" id="editor-filename">aes_example.c</span>
+            <button class="run-btn" id="run-btn" onclick="runDetection()">
+              ▶ Run Detection
+            </button>
+          </div>
+          <textarea id="code-editor" spellcheck="false"></textarea>
+        </div>
+        <div class="results-pane">
+          <div class="pane-header">
+            <span>Detected Assets</span>
+            <span id="asset-count" style="color:var(--muted);">0 found</span>
+          </div>
+          <div class="results-scroll" id="results-scroll">
+            <div class="empty-state" id="empty-state">
+              <div class="empty-icon">🔍</div>
+              <div class="empty-title">Run Detection</div>
+              <div class="empty-desc">Click "Run Detection" to scan the C/C++ source for cryptographic assets via the simulated detection engine.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="stat-bar" id="stat-bar">
+        <div class="stat-item">Engine: <span class="stat-num" style="margin-left:5px;">CppDetectionEngine</span></div>
+        <div class="stat-sep">|</div>
+        <div class="stat-item">Parser: <span class="stat-num" style="margin-left:5px;">sonar-cxx 2.3.0</span></div>
+        <div class="stat-sep">|</div>
+        <div class="stat-item">Assets: <span class="stat-num" id="stat-assets" style="margin-left:5px;">—</span></div>
+        <div class="stat-sep">|</div>
+        <div class="stat-item">Warnings: <span class="stat-num" style="color:var(--warn);margin-left:5px;" id="stat-warn">—</span></div>
+        <div class="stat-sep">|</div>
+        <div class="stat-item">Time: <span class="stat-num" id="stat-time" style="margin-left:5px;">—</span></div>
+      </div>
+    </div>
+
+    <!-- CBOM JSON PANEL -->
+    <div class="panel" id="panel-cbom">
+      <div class="json-panel">
+        <div class="pane-header">
+          <span>CycloneDX 1.6 CBOM Output</span>
+          <span class="filename">cbom.json</span>
+          <button onclick="copyCbom()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:4px;padding:4px 12px;font-family:var(--font-mono);font-size:11px;cursor:pointer;display:flex;align-items:center;gap:5px;">📋 Copy JSON</button>
+        </div>
+        <div class="json-scroll" id="cbom-display">
+          <div class="empty-state">
+            <div class="empty-icon">📄</div>
+            <div class="empty-title">No CBOM Generated</div>
+            <div class="empty-desc">Run the scanner first to generate the CycloneDX 1.6 CBOM output.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OPA PANEL -->
+    <div class="panel" id="panel-opa">
+      <div class="opa-panel">
+        <div class="pane-header">
+          <span>Open Policy Agent — Evaluation Results</span>
+          <span id="opa-summary" style="color:var(--muted);">Run scanner first</span>
+        </div>
+        <div class="policy-grid" id="policy-grid">
+          <div class="empty-state" style="grid-column:1/-1;">
+            <div class="empty-icon">🛡️</div>
+            <div class="empty-title">Awaiting CBOM Input</div>
+            <div class="empty-desc">Run the scanner first. OPA will evaluate the generated CBOM against all loaded policies.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESEARCH PANEL -->
+    <div class="panel" id="panel-research">
+      <div class="research-panel" id="research-grid"></div>
+    </div>
+
+    <!-- RULES PANEL -->
+    <div class="panel" id="panel-rules">
+      <div style="flex:1;overflow-y:auto;padding:16px;">
+        <div style="margin-bottom:16px;">
+          <div style="font-family:var(--font-display);font-size:16px;font-weight:700;margin-bottom:4px;">Detection Rule Structure — C/C++ OpenSSL Module</div>
+          <div style="font-size:11px;color:var(--muted);">Each rule below maps directly to a <code style="color:var(--accent);">*Rules.java</code> file in <code style="color:var(--accent);">cpp/src/main/java/.../detection/openssl/</code></div>
+        </div>
+        <div id="rules-container"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════
+// CODE SNIPPETS
+// ═══════════════════════════════════════════
+const SNIPPETS = {
+  evp_cipher: {
+    filename: 'aes_gcm_example.c',
+    code: `#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <string.h>
+#include <stdio.h>
+
+/**
+ * Demonstrates AES-256-GCM encryption using OpenSSL 3.x EVP API.
+ * Detection targets: EVP_CIPHER_CTX_new, EVP_EncryptInit_ex,
+ *   EVP_aes_256_gcm(), EVP_CIPHER_CTX_ctrl, RAND_bytes
+ */
+int encrypt_aes_gcm(const unsigned char *plaintext, int plaintext_len,
+                    const unsigned char *aad, int aad_len,
+                    unsigned char *ciphertext, unsigned char *tag) {
+
+    EVP_CIPHER_CTX *ctx;
+    int len, ciphertext_len;
+
+    /* Generate random key and IV */
+    unsigned char key[32], iv[12];
+    RAND_bytes(key, sizeof(key));       /* <-- RNG asset detected */
+    RAND_bytes(iv, sizeof(iv));
+
+    ctx = EVP_CIPHER_CTX_new();
+
+    /* Initialize with AES-256-GCM */
+    EVP_EncryptInit_ex(ctx,             /* <-- Cipher asset: AES-256-GCM */
+                       EVP_aes_256_gcm(),
+                       NULL, key, iv);
+
+    /* Set IV length for non-default values */
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL);
+
+    /* Provide AAD */
+    EVP_EncryptUpdate(ctx, NULL, &len, aad, aad_len);
+
+    /* Encrypt plaintext */
+    EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len);
+    ciphertext_len = len;
+
+    EVP_EncryptFinal_ex(ctx, ciphertext + len, &len);
+    ciphertext_len += len;
+
+    /* Get the GCM authentication tag */
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag);
+
+    EVP_CIPHER_CTX_free(ctx);
+    return ciphertext_len;
+}`,
+    assets: [
+      { name: 'AES-256-GCM', type: 'cipher', typeLabel: 'Cipher',
+        primitive: 'ae', mode: 'gcm', keySize: 256,
+        fn: 'EVP_EncryptInit_ex → EVP_aes_256_gcm()',
+        line: 22, file: 'aes_gcm_example.c',
+        pqSafe: true, oid: '2.16.840.1.101.3.4.1.46' },
+      { name: 'RAND_bytes (PRNG)', type: 'rng', typeLabel: 'RNG',
+        primitive: 'prng', fn: 'RAND_bytes',
+        line: 16, file: 'aes_gcm_example.c',
+        pqSafe: true, oid: '—' },
+    ]
+  },
+
+  evp_hash: {
+    filename: 'hash_example.c',
+    code: `#include <openssl/evp.h>
+#include <openssl/sha.h>
+#include <stdio.h>
+#include <string.h>
+
+/**
+ * Demonstrates SHA-256 hashing via both the modern EVP API
+ * and the legacy SHA256_Init direct call.
+ * Detection targets: EVP_DigestInit_ex, EVP_sha256(),
+ *   SHA256_Init, EVP_MD_CTX_new
+ */
+void evp_sha256_hash(const char *message, unsigned char *digest) {
+    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+
+    /* Modern EVP-based digest */
+    EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);  /* <-- Hash asset: SHA-256 */
+    EVP_DigestUpdate(mdctx, message, strlen(message));
+
+    unsigned int digest_len;
+    EVP_DigestFinal_ex(mdctx, digest, &digest_len);
+    EVP_MD_CTX_free(mdctx);
+}
+
+/* Legacy direct API (still detected by sonar-cryptography) */
+void legacy_sha256(const char *message, unsigned char *digest) {
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);                /* <-- Hash asset: SHA-256 (legacy API) */
+    SHA256_Update(&ctx, message, strlen(message));
+    SHA256_Final(digest, &ctx);
+}
+
+/* Also test SHA-1 — deprecated for signatures per NIST SP 800-131A */
+void legacy_sha1(const char *message, unsigned char *digest) {
+    SHA_CTX ctx;
+    SHA1_Init(&ctx);                  /* <-- Hash asset: SHA-1 (DEPRECATED) */
+    SHA1_Update(&ctx, message, strlen(message));
+    SHA1_Final(digest, &ctx);
+}`,
+    assets: [
+      { name: 'SHA-256', type: 'hash', typeLabel: 'Hash',
+        primitive: 'hash', keySize: 256,
+        fn: 'EVP_DigestInit_ex → EVP_sha256()',
+        line: 15, file: 'hash_example.c',
+        pqSafe: true, oid: '2.16.840.1.101.3.4.2.1' },
+      { name: 'SHA-256 (legacy)', type: 'hash', typeLabel: 'Hash',
+        primitive: 'hash', keySize: 256,
+        fn: 'SHA256_Init',
+        line: 25, file: 'hash_example.c',
+        pqSafe: true, oid: '2.16.840.1.101.3.4.2.1' },
+      { name: 'SHA-1 ⚠', type: 'hash', typeLabel: 'Hash',
+        primitive: 'hash', keySize: 160,
+        fn: 'SHA1_Init',
+        line: 33, file: 'hash_example.c',
+        pqSafe: false, warn: 'Deprecated per NIST SP 800-131A for signature use',
+        oid: '1.3.14.3.2.26' },
+    ]
+  },
+
+  hmac: {
+    filename: 'mac_kdf_example.c',
+    code: `#include <openssl/hmac.h>
+#include <openssl/evp.h>
+#include <openssl/kdf.h>
+#include <string.h>
+#include <stdio.h>
+
+/**
+ * HMAC-SHA256 message authentication code.
+ * Detection targets: HMAC_CTX_new, HMAC_Init_ex, EVP_sha256()
+ */
+int compute_hmac_sha256(const unsigned char *key, int key_len,
+                        const unsigned char *msg, int msg_len,
+                        unsigned char *mac) {
+    HMAC_CTX *ctx = HMAC_CTX_new();
+
+    HMAC_Init_ex(ctx, key, key_len,   /* <-- MAC asset: HMAC-SHA256 */
+                 EVP_sha256(), NULL);
+    HMAC_Update(ctx, msg, msg_len);
+
+    unsigned int mac_len;
+    HMAC_Final(ctx, mac, &mac_len);
+    HMAC_CTX_free(ctx);
+    return mac_len;
+}
+
+/**
+ * PBKDF2-HMAC-SHA256 key derivation.
+ * Detection targets: PKCS5_PBKDF2_HMAC, EVP_sha256()
+ * Note: iteration_count < 100000 triggers OPA weak_kdf policy.
+ */
+int derive_key_pbkdf2(const char *password, const unsigned char *salt,
+                      int salt_len, unsigned char *derived_key, int key_len) {
+    /* 10000 iterations — below recommended threshold */
+    return PKCS5_PBKDF2_HMAC(         /* <-- KDF asset: PBKDF2-HMAC-SHA256 */
+        password, strlen(password),
+        salt, salt_len,
+        10000,                        /* WARNING: low iteration count */
+        EVP_sha256(),
+        key_len, derived_key
+    );
+}`,
+    assets: [
+      { name: 'HMAC-SHA256', type: 'mac', typeLabel: 'MAC',
+        primitive: 'mac', keySize: 256,
+        fn: 'HMAC_Init_ex → EVP_sha256()',
+        line: 15, file: 'mac_kdf_example.c',
+        pqSafe: true, oid: '1.2.840.113549.2.9' },
+      { name: 'PBKDF2-HMAC-SHA256', type: 'kdf', typeLabel: 'KDF',
+        primitive: 'kdf', keySize: 256,
+        fn: 'PKCS5_PBKDF2_HMAC',
+        line: 34, file: 'mac_kdf_example.c',
+        pqSafe: true, warn: 'Low iteration count (10000) — below 100k threshold',
+        oid: '1.2.840.113549.1.5.12' },
+    ]
+  },
+
+  rsa_pkey: {
+    filename: 'pkey_example.c',
+    code: `#include <openssl/evp.h>
+#include <openssl/rsa.h>
+#include <openssl/ec.h>
+#include <openssl/pem.h>
+#include <stdio.h>
+
+/**
+ * RSA-2048 key generation and PKCS#1v1.5 signing.
+ * Detection targets: EVP_PKEY_CTX_new_id, EVP_PKEY_keygen_init,
+ *   EVP_PKEY_CTX_set_rsa_keygen_bits, EVP_DigestSignInit
+ */
+EVP_PKEY *generate_rsa_2048() {
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
+    EVP_PKEY_keygen_init(ctx);
+
+    /* 2048-bit key — quantum-unsafe but meets current NIST guidance */
+    EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, 2048);  /* <-- PKE asset: RSA-2048 */
+
+    EVP_PKEY *pkey = NULL;
+    EVP_PKEY_keygen(ctx, &pkey);
+    EVP_PKEY_CTX_free(ctx);
+    return pkey;
+}
+
+/**
+ * ECDSA P-256 key generation and signing.
+ * Detection targets: EVP_PKEY_CTX_new_id(EVP_PKEY_EC),
+ *   EVP_PKEY_CTX_set_ec_paramgen_curve_nid, NID_X9_62_prime256v1
+ */
+EVP_PKEY *generate_ec_p256() {
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL);
+    EVP_PKEY_keygen_init(ctx);
+
+    /* P-256 (prime256v1) — acceptable, but not PQC */
+    EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx,   /* <-- PKE asset: EC-P256 */
+                                            NID_X9_62_prime256v1);
+
+    EVP_PKEY *pkey = NULL;
+    EVP_PKEY_keygen(ctx, &pkey);
+    EVP_PKEY_CTX_free(ctx);
+    return pkey;
+}
+
+/**
+ * Sign with SHA-256 + ECDSA.
+ * Detection targets: EVP_DigestSignInit, EVP_sha256()
+ */
+int sign_ecdsa(EVP_PKEY *pkey, const unsigned char *msg, size_t msg_len,
+               unsigned char *sig, size_t *sig_len) {
+    EVP_MD_CTX *md_ctx = EVP_MD_CTX_new();
+    EVP_DigestSignInit(md_ctx, NULL, EVP_sha256(), NULL, pkey);
+    EVP_DigestSignUpdate(md_ctx, msg, msg_len);
+    EVP_DigestSignFinal(md_ctx, sig, sig_len);
+    EVP_MD_CTX_free(md_ctx);
+    return 1;
+}`,
+    assets: [
+      { name: 'RSA-2048', type: 'pkey', typeLabel: 'Asymmetric',
+        primitive: 'pke', keySize: 2048,
+        fn: 'EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, 2048)',
+        line: 16, file: 'pkey_example.c',
+        pqSafe: false, warn: 'Not quantum-safe — RSA is broken by Shor\'s algorithm',
+        oid: '1.2.840.113549.1.1.1' },
+      { name: 'ECDSA P-256', type: 'pkey', typeLabel: 'Asymmetric',
+        primitive: 'signature', keySize: 256,
+        fn: 'EVP_PKEY_CTX_set_ec_paramgen_curve_nid → NID_X9_62_prime256v1',
+        line: 33, file: 'pkey_example.c',
+        pqSafe: false, warn: 'EC curves are broken by quantum computers (Shor)',
+        oid: '1.2.840.10045.3.1.7' },
+      { name: 'SHA-256 (sign)', type: 'hash', typeLabel: 'Hash',
+        primitive: 'hash', keySize: 256,
+        fn: 'EVP_DigestSignInit → EVP_sha256()',
+        line: 47, file: 'pkey_example.c',
+        pqSafe: true, oid: '2.16.840.1.101.3.4.2.1' },
+    ]
+  },
+
+  tls_ctx: {
+    filename: 'tls_server.c',
+    code: `#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/tls1.h>
+#include <stdio.h>
+
+/**
+ * TLS server context setup with cipher-suite configuration.
+ * Detection targets: TLS_server_method, SSL_CTX_new,
+ *   SSL_CTX_set_cipher_list, SSL_CTX_set_ciphersuites,
+ *   SSL_CTX_set_min_proto_version, SSL_CTX_set_max_proto_version
+ */
+SSL_CTX *create_tls_server_ctx() {
+    /* Use TLS 1.2+ only */
+    SSL_CTX *ctx = SSL_CTX_new(TLS_server_method()); /* <-- TLS asset */
+
+    /* Restrict to TLS 1.2 minimum — TLS 1.0/1.1 triggers OPA policy */
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    SSL_CTX_set_max_proto_version(ctx, TLS1_3_VERSION);
+
+    /* TLS 1.2 cipher list — no weak ciphers */
+    SSL_CTX_set_cipher_list(ctx,           /* <-- TLS cipher asset */
+        "ECDHE-RSA-AES256-GCM-SHA384:"
+        "ECDHE-ECDSA-AES256-GCM-SHA384:"
+        "DHE-RSA-AES256-GCM-SHA384");
+
+    /* TLS 1.3 cipher suites */
+    SSL_CTX_set_ciphersuites(ctx,          /* <-- TLS 1.3 cipher asset */
+        "TLS_AES_256_GCM_SHA384:"
+        "TLS_CHACHA20_POLY1305_SHA256");
+
+    /* Load certificate and key */
+    SSL_CTX_use_certificate_file(ctx, "server.crt", SSL_FILETYPE_PEM);
+    SSL_CTX_use_PrivateKey_file(ctx, "server.key", SSL_FILETYPE_PEM);
+
+    return ctx;
+}`,
+    assets: [
+      { name: 'TLS 1.2–1.3 Context', type: 'tls', typeLabel: 'TLS',
+        primitive: 'tls', keySize: 0,
+        fn: 'SSL_CTX_new(TLS_server_method())',
+        line: 13, file: 'tls_server.c',
+        pqSafe: true, oid: '—' },
+      { name: 'ECDHE-RSA-AES256-GCM-SHA384', type: 'cipher', typeLabel: 'Cipher',
+        primitive: 'ae', mode: 'gcm', keySize: 256,
+        fn: 'SSL_CTX_set_cipher_list → cipher-string',
+        line: 19, file: 'tls_server.c',
+        pqSafe: false, warn: 'ECDHE uses quantum-vulnerable key exchange',
+        oid: '2.16.840.1.101.3.4.1.46' },
+      { name: 'TLS_AES_256_GCM_SHA384', type: 'cipher', typeLabel: 'Cipher',
+        primitive: 'ae', mode: 'gcm', keySize: 256,
+        fn: 'SSL_CTX_set_ciphersuites → TLS 1.3 cipher',
+        line: 25, file: 'tls_server.c',
+        pqSafe: true, oid: '2.16.840.1.101.3.4.1.46' },
+    ]
+  },
+
+  weak_crypto: {
+    filename: 'legacy_weak.c',
+    code: `#include <openssl/md5.h>
+#include <openssl/des.h>
+#include <openssl/rc4.h>
+#include <openssl/evp.h>
+#include <string.h>
+#include <stdio.h>
+
+/**
+ * WARNING: Legacy cryptography — intentionally weak.
+ * This fixture demonstrates OPA policy violations.
+ * Detection targets: MD5_Init, DES_ecb_encrypt, RC4_set_key,
+ *   EVP_des_ede3_cbc (3DES)
+ */
+
+/* MD5 — broken for collision resistance, deprecated for signatures */
+void compute_md5(const char *msg, unsigned char *digest) {
+    MD5_CTX ctx;
+    MD5_Init(&ctx);           /* <-- Hash: MD5 (VIOLATED: weak_hash policy) */
+    MD5_Update(&ctx, msg, strlen(msg));
+    MD5_Final(digest, &ctx);
+}
+
+/* DES — 56-bit key, broken since 1999 (DES Cracker) */
+void des_encrypt(const_DES_cblock *key, DES_cblock *in, DES_cblock *out) {
+    DES_key_schedule schedule;
+    DES_set_key_checked(key, &schedule);
+    DES_ecb_encrypt(in, out,  /* <-- Cipher: DES (VIOLATED: weak_cipher) */
+                    &schedule, DES_ENCRYPT);
+}
+
+/* RC4 — stream cipher, completely broken (BEAST, RC4 biases) */
+void rc4_cipher(RC4_KEY *key, unsigned char *data, int len) {
+    unsigned char key_data[16] = { /* 128-bit key material */ };
+    RC4_set_key(key, 16, key_data);/* <-- Cipher: RC4 (VIOLATED: weak_cipher) */
+    RC4(key, len, data, data);
+}
+
+/* 3DES-CBC — deprecated by NIST after 2023 */
+void triple_des_cbc(const unsigned char *key, unsigned char *iv,
+                    const unsigned char *in, unsigned char *out, int len) {
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    EVP_EncryptInit_ex(ctx,
+                       EVP_des_ede3_cbc(), /* <-- Cipher: 3DES (VIOLATED) */
+                       NULL, key, iv);
+    int outl;
+    EVP_EncryptUpdate(ctx, out, &outl, in, len);
+    EVP_EncryptFinal_ex(ctx, out + outl, &outl);
+    EVP_CIPHER_CTX_free(ctx);
+}`,
+    assets: [
+      { name: 'MD5 ⚠', type: 'hash', typeLabel: 'Hash',
+        primitive: 'hash', keySize: 128,
+        fn: 'MD5_Init', line: 17, file: 'legacy_weak.c',
+        pqSafe: false, warn: 'Broken — collision resistance failed. VIOLATED by weak_hash.rego',
+        oid: '1.2.840.113549.2.5' },
+      { name: 'DES ⚠', type: 'cipher', typeLabel: 'Cipher',
+        primitive: 'block-cipher', mode: 'ecb', keySize: 56,
+        fn: 'DES_ecb_encrypt', line: 25, file: 'legacy_weak.c',
+        pqSafe: false, warn: '56-bit key — broken classically. VIOLATED by weak_cipher.rego',
+        oid: '1.3.14.3.2.7' },
+      { name: 'RC4 ⚠', type: 'cipher', typeLabel: 'Cipher',
+        primitive: 'stream-cipher', keySize: 128,
+        fn: 'RC4_set_key', line: 33, file: 'legacy_weak.c',
+        pqSafe: false, warn: 'Stream cipher with statistical biases — fully broken. VIOLATED by weak_cipher.rego',
+        oid: '1.2.840.113549.3.4' },
+      { name: '3DES-CBC ⚠', type: 'cipher', typeLabel: 'Cipher',
+        primitive: 'block-cipher', mode: 'cbc', keySize: 112,
+        fn: 'EVP_EncryptInit_ex → EVP_des_ede3_cbc()',
+        line: 43, file: 'legacy_weak.c',
+        pqSafe: false, warn: 'Deprecated by NIST after 2023. VIOLATED by weak_cipher.rego',
+        oid: '1.2.840.113549.3.7' },
+    ]
+  }
+};
+
+// ═══════════════════════════════════════════
+// DETECTION RULES DATA
+// ═══════════════════════════════════════════
+const RULES = [
+  {
+    category: 'OpenSslEvpCipherRules.java',
+    header: 'openssl/evp.h — Symmetric Encryption',
+    rules: [
+      { fn: 'EVP_EncryptInit_ex', detects: 'Cipher algorithm (EVP_aes_*_*, EVP_des_*, EVP_rc4, EVP_chacha20)', asset: 'CipherAction.ENCRYPT' },
+      { fn: 'EVP_DecryptInit_ex', detects: 'Cipher algorithm — decryption variant', asset: 'CipherAction.DECRYPT' },
+      { fn: 'EVP_CipherInit_ex2', detects: 'OpenSSL 3.x unified init (enc=1 encrypt, enc=0 decrypt)', asset: 'CipherAction.ENCRYPT/DECRYPT' },
+    ]
+  },
+  {
+    category: 'OpenSslHashRules.java',
+    header: 'openssl/evp.h, openssl/sha.h — Message Digest',
+    rules: [
+      { fn: 'EVP_DigestInit_ex', detects: 'Hash algorithm via MD type param (EVP_sha256, EVP_sha512, EVP_md5)', asset: 'HashAction.HASH' },
+      { fn: 'SHA256_Init', detects: 'Direct SHA-256 initialization (legacy API)', asset: 'HashAction.HASH → SHA-256' },
+      { fn: 'SHA1_Init', detects: 'Direct SHA-1 initialization (deprecated — triggers weak_hash.rego)', asset: 'HashAction.HASH → SHA-1' },
+      { fn: 'MD5_Init', detects: 'Direct MD5 initialization (triggers weak_hash.rego)', asset: 'HashAction.HASH → MD5' },
+    ]
+  },
+  {
+    category: 'OpenSslMacRules.java',
+    header: 'openssl/hmac.h — Message Authentication Code',
+    rules: [
+      { fn: 'HMAC_Init_ex', detects: 'HMAC with underlying digest algorithm extracted from 4th param', asset: 'MacAction.GENERATE' },
+      { fn: 'EVP_MAC_init', detects: 'OpenSSL 3.x EVP_MAC generic MAC (CMAC, GMAC, KMAC)', asset: 'MacAction.GENERATE' },
+    ]
+  },
+  {
+    category: 'OpenSslPkeyRules.java',
+    header: 'openssl/evp.h — Asymmetric / Signature',
+    rules: [
+      { fn: 'EVP_PKEY_CTX_set_rsa_keygen_bits', detects: 'RSA key size extracted from integer param', asset: 'KeyAction.GENERATE → RSA-{bits}' },
+      { fn: 'EVP_PKEY_CTX_set_ec_paramgen_curve_nid', detects: 'EC curve NID mapped to curve name (P-256, P-384, P-521)', asset: 'KeyAction.GENERATE → EC-{curve}' },
+      { fn: 'EVP_DigestSignInit', detects: 'Signature scheme — digest and key type extracted', asset: 'SignatureAction.SIGN' },
+    ]
+  },
+  {
+    category: 'OpenSslKdfRules.java',
+    header: 'openssl/kdf.h — Key Derivation Function',
+    rules: [
+      { fn: 'PKCS5_PBKDF2_HMAC', detects: 'PBKDF2 — digest and iteration count extracted', asset: 'KdfAction.DERIVE → PBKDF2-{digest}' },
+      { fn: 'EVP_KDF_derive', detects: 'OpenSSL 3.x generic KDF (HKDF, SCRYPT, ARGON2)', asset: 'KdfAction.DERIVE' },
+    ]
+  },
+  {
+    category: 'OpenSslRandRules.java',
+    header: 'openssl/rand.h — Random Number Generation',
+    rules: [
+      { fn: 'RAND_bytes', detects: 'CSPRNG output — size extracted from second param', asset: 'RandAction.GENERATE' },
+      { fn: 'RAND_priv_bytes', detects: 'Private CSPRNG (OpenSSL 3.x) — higher privilege entropy source', asset: 'RandAction.GENERATE' },
+    ]
+  },
+  {
+    category: 'OpenSslTlsRules.java',
+    header: 'openssl/ssl.h — TLS / libssl',
+    rules: [
+      { fn: 'SSL_CTX_new', detects: 'TLS context — method type captured (TLS_server_method, TLS_client_method)', asset: 'TlsAction.CONFIGURE' },
+      { fn: 'SSL_CTX_set_cipher_list', detects: 'TLS 1.2 cipher string parsed for individual cipher suites', asset: 'CipherAction.CONFIGURE' },
+      { fn: 'SSL_CTX_set_ciphersuites', detects: 'TLS 1.3 cipher suites extracted', asset: 'CipherAction.CONFIGURE' },
+      { fn: 'SSL_CTX_set_min_proto_version', detects: 'Minimum TLS version — triggers tls_minimum.rego if < TLS 1.2', asset: 'TlsAction.VERSION' },
+    ]
+  },
+];
+
+// ═══════════════════════════════════════════
+// LIBRARY RESEARCH DATA
+// ═══════════════════════════════════════════
+const LIBRARIES = [
+  {
+    name: 'wolfSSL', rec: 'green', recLabel: 'Green',
+    style: 'C — OpenSSL-compat + native wc_* API',
+    detail: 'OpenSSL compatibility layer (OPENSSL_EXTRA macro) means ~85% of existing EVP detection rules transfer verbatim. The native wolfCrypt wc_* functions require ~30 additional rules. Reuses sonar-cxx without modification.',
+    apis: ['wc_AesGcmEncrypt','wc_RsaPrivateDecrypt','wc_InitSha256','wolfSSL_CTX_new','wc_PBKDF2','SSL_CTX_use_PrivateKey_file'],
+    rules: 30, effort: '2–3 wks', coverage: '90%',
+  },
+  {
+    name: 'libsodium', rec: 'green', recLabel: 'Green',
+    style: 'C — small opinionated API',
+    detail: 'Highly opinionated design with ~60 top-level functions. Low rule count, very high signal. No symbol-table complexity — all calls are free functions. Key families: crypto_box_*, crypto_secretbox_*, crypto_sign_*, crypto_generichash_*.',
+    apis: ['crypto_box_easy','crypto_secretbox_easy','crypto_sign_detached','crypto_generichash','crypto_pwhash','randombytes_buf'],
+    rules: 18, effort: '1–2 wks', coverage: '95%',
+  },
+  {
+    name: 'BoringSSL', rec: 'yellow', recLabel: 'Yellow',
+    style: 'C — OpenSSL fork (Google)',
+    detail: 'Mostly ABI-compatible with OpenSSL; existing EVP rules catch ~75% of use. Google-specific APIs (CBS_*, CBB_*, CRYPTO_BUFFER) require ~15 new rules. ABI instability means detection rules need version pinning.',
+    apis: ['CBS_init','CBB_init','CRYPTO_BUFFER_new','EVP_HPKE_CTX_new','SPAKE2_CTX_new'],
+    rules: 15, effort: '2–3 wks', coverage: '80%',
+  },
+  {
+    name: 'Botan', rec: 'yellow', recLabel: 'Yellow',
+    style: 'C++ — class hierarchy',
+    detail: 'C++ class-based API (Botan::Cipher_Mode, Botan::Public_Key) requires forObjectTypes matching by class name. sonar-cxx 2.3.0 symbol-table is essential for correct class resolution across translation units.',
+    apis: ['Botan::Cipher_Mode::create','Botan::RSA_PublicKey','Botan::ECDSA_PrivateKey','Botan::PBKDF','Botan::TLS::Client'],
+    rules: 45, effort: '4–5 wks', coverage: '75%',
+  },
+  {
+    name: 'Rust Crypto', rec: 'red', recLabel: 'Red (AST)',
+    style: 'Rust — trait-based (RustCrypto, ring, rustls)',
+    detail: 'No production-grade sonar-rust analyzer. Full AST detection would need a custom ANTLR sensor (the C# pattern). Recommendation: Cargo.toml lockfile heuristic for crate-level CBOM + AST-level detection as future mentorship scope.',
+    apis: ['aes::Aes256Gcm','ring::signature::EcdsaKeyPair','rustls::ClientConfig','aws_lc_rs::aead','sha2::Sha256'],
+    rules: 0, effort: 'Separate mentorship', coverage: '~30% (manifest)',
+  },
+];
+
+// ═══════════════════════════════════════════
+// OPA POLICY EVALUATOR
+// ═══════════════════════════════════════════
+function evaluateOpa(assets) {
+  const policies = [];
+
+  // 1. quantum_safe
+  const nonPqc = assets.filter(a => !a.pqSafe && (a.type === 'pkey' || a.type === 'cipher' || a.type === 'tls'));
+  policies.push({
+    name: 'quantum_safe.rego',
+    desc: 'Flags asymmetric algorithms not on the NIST PQC whitelist (ML-KEM, ML-DSA, SLH-DSA, etc.)',
+    status: nonPqc.length > 0 ? 'fail' : 'pass',
+    findings: nonPqc.map(a => ({ text: `${a.name} — classical algorithm, quantum-vulnerable`, ok: false }))
+      .concat(assets.filter(a => a.pqSafe && a.type === 'cipher' && a.name.includes('AES-256')).map(a => ({ text: `${a.name} — symmetric, quantum-safe (Grover requires 2^128 ops)`, ok: true })))
+  });
+
+  // 2. weak_cipher
+  const weakCiphers = assets.filter(a => ['DES','3DES','RC4'].some(w => a.name.includes(w)));
+  policies.push({
+    name: 'weak_cipher.rego',
+    desc: 'Flags RC4, DES, 3DES, Blowfish, IDEA — classically broken or deprecated ciphers.',
+    status: weakCiphers.length > 0 ? 'fail' : 'pass',
+    findings: weakCiphers.map(a => ({ text: `${a.name} — ${a.warn || 'weak cipher'}`, ok: false }))
+  });
+
+  // 3. weak_hash
+  const weakHashes = assets.filter(a => a.type === 'hash' && (a.name.includes('MD5') || a.name.includes('SHA-1')));
+  policies.push({
+    name: 'weak_hash.rego',
+    desc: 'Flags MD5, MD4, SHA-1 (for signatures), RIPEMD-128 — collision-vulnerable or deprecated.',
+    status: weakHashes.length > 0 ? 'fail' : 'pass',
+    findings: weakHashes.map(a => ({ text: `${a.name} — ${a.warn || 'weak hash'}`, ok: false }))
+  });
+
+  // 4. small_key
+  const smallKey = assets.filter(a => {
+    if (a.type === 'pkey') {
+      if (a.name.includes('RSA') && a.keySize < 2048) return true;
+      if (a.name.includes('EC') && a.keySize < 256) return true;
+    }
+    if (a.type === 'cipher' && a.name.includes('AES') && a.keySize < 128) return true;
+    return false;
+  });
+  policies.push({
+    name: 'small_key.rego',
+    desc: 'Flags RSA < 2048-bit, ECC < P-256, AES < 128-bit key sizes.',
+    status: smallKey.length > 0 ? 'fail' : (assets.length > 0 ? 'pass' : 'pass'),
+    findings: smallKey.length === 0 && assets.length > 0
+      ? [{ text: 'All key sizes meet minimum thresholds', ok: true }]
+      : smallKey.map(a => ({ text: `${a.name} — key size ${a.keySize} bits below threshold`, ok: false }))
+  });
+
+  // 5. tls_minimum
+  const hasTls = assets.filter(a => a.type === 'tls');
+  const hasWeakTls = assets.filter(a => a.type === 'tls' && a.warn && a.warn.includes('TLS 1.0'));
+  policies.push({
+    name: 'tls_minimum.rego',
+    desc: 'Ensures TLS 1.2+ minimum; flags TLS 1.0/1.1 cipher suites and export-grade ciphers.',
+    status: hasWeakTls.length > 0 ? 'fail' : (hasTls.length > 0 ? 'pass' : 'pass'),
+    findings: hasTls.length > 0
+      ? [{ text: 'TLS minimum version: 1.2 (TLS1_2_VERSION) — compliant', ok: true }]
+      : []
+  });
+
+  // 6. weak_kdf
+  const weakKdf = assets.filter(a => a.type === 'kdf' && a.warn && a.warn.includes('iteration'));
+  policies.push({
+    name: 'weak_kdf.rego',
+    desc: 'Flags PBKDF2 with < 100,000 iterations; PBKDF1; and other underpowered KDFs.',
+    status: weakKdf.length > 0 ? 'warn' : 'pass',
+    findings: weakKdf.map(a => ({ text: `${a.name} — ${a.warn}`, ok: false }))
+  });
+
+  // 7. pqc_hybrid
+  const classicalKem = assets.filter(a => !a.pqSafe && a.type === 'pkey');
+  policies.push({
+    name: 'pqc_hybrid.rego',
+    desc: 'Recommends PQC hybrid mode when classical-only KEMs are detected (ML-KEM + X25519, etc.).',
+    status: classicalKem.length > 0 ? 'warn' : 'pass',
+    findings: classicalKem.length > 0
+      ? [{ text: `${classicalKem.length} classical asymmetric asset(s) detected — consider ML-KEM hybrid`, ok: false }]
+      : [{ text: 'No classical-only KEM detected in this CBOM', ok: true }]
+  });
+
+  return policies;
+}
+
+// ═══════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════
+let currentAssets = [];
+let currentSnippet = 'evp_cipher';
+
+// ═══════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════
+function init() {
+  loadSnippet('evp_cipher');
+  renderResearch();
+  renderRules();
+}
+
+function loadSnippet(id) {
+  currentSnippet = id;
+  const s = SNIPPETS[id];
+  document.getElementById('code-editor').value = s.code;
+  document.getElementById('editor-filename').textContent = s.filename;
+  // update sidebar
+  document.querySelectorAll('.snippet-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-' + id).classList.add('active');
+  // clear results
+  resetResults();
+}
+
+function resetResults() {
+  currentAssets = [];
+  document.getElementById('results-scroll').innerHTML = `
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">Run Detection</div>
+      <div class="empty-desc">Click "Run Detection" to scan the C/C++ source for cryptographic assets.</div>
+    </div>`;
+  document.getElementById('asset-count').textContent = '0 found';
+  document.getElementById('stat-assets').textContent = '—';
+  document.getElementById('stat-warn').textContent = '—';
+  document.getElementById('stat-time').textContent = '—';
+}
+
+// ═══════════════════════════════════════════
+// DETECTION SIMULATION
+// ═══════════════════════════════════════════
+function runDetection() {
+  const btn = document.getElementById('run-btn');
+  btn.textContent = '⏳ Scanning…';
+  btn.classList.add('running');
+  btn.disabled = true;
+
+  resetResults();
+
+  const t0 = performance.now();
+  const snippet = SNIPPETS[currentSnippet];
+
+  setTimeout(() => {
+    const assets = snippet.assets;
+    currentAssets = assets;
+    const elapsed = ((performance.now() - t0) + 120 + Math.random()*80).toFixed(0);
+
+    renderAssets(assets);
+    renderCbom(assets, snippet.filename);
+    renderOpa(assets);
+
+    const warnings = assets.filter(a => !a.pqSafe).length;
+    document.getElementById('asset-count').textContent = `${assets.length} asset${assets.length !== 1 ? 's' : ''} found`;
+    document.getElementById('stat-assets').textContent = assets.length;
+    document.getElementById('stat-warn').textContent = warnings;
+    document.getElementById('stat-time').textContent = elapsed + ' ms';
+
+    btn.textContent = '▶ Run Detection';
+    btn.classList.remove('running');
+    btn.disabled = false;
+
+    showToast(`✅ Detected ${assets.length} cryptographic asset(s) in ${elapsed}ms`);
+  }, 700 + Math.random()*400);
+}
+
+// ═══════════════════════════════════════════
+// RENDER ASSETS
+// ═══════════════════════════════════════════
+function renderAssets(assets) {
+  const container = document.getElementById('results-scroll');
+  container.innerHTML = '';
+  assets.forEach((a, i) => {
+    const card = document.createElement('div');
+    card.className = 'asset-card';
+    card.style.animationDelay = (i * 80) + 'ms';
+
+    const pqIcon = a.pqSafe ? '🟢' : (a.type === 'hash' && a.warn ? '🟡' : '🔴');
+    const tagClass = `tag-${a.type}`;
+
+    card.innerHTML = `
+      <div class="asset-header">
+        <span class="pq-icon">${pqIcon}</span>
+        <span class="asset-name">${a.name}</span>
+        <span class="asset-type-tag ${tagClass}">${a.typeLabel}</span>
+      </div>
+      <div class="asset-body">
+        <div class="asset-row">
+          <span class="asset-row-key">Primitive</span>
+          <span class="asset-row-val">${a.primitive}</span>
+        </div>
+        ${a.keySize ? `<div class="asset-row">
+          <span class="asset-row-key">Key / param</span>
+          <span class="asset-row-val">${a.keySize} bit</span>
+        </div>` : ''}
+        <div class="asset-row">
+          <span class="asset-row-key">Detected via</span>
+          <span class="asset-row-val" style="font-size:10px;color:var(--accent)">${a.fn}</span>
+        </div>
+        <div class="asset-row">
+          <span class="asset-row-key">Evidence</span>
+          <span class="asset-row-val"><span class="evidence-link">${a.file}:${a.line}</span></span>
+        </div>
+        ${a.oid !== '—' ? `<div class="asset-row">
+          <span class="asset-row-key">OID</span>
+          <span class="asset-row-val" style="font-size:10px;">${a.oid}</span>
+        </div>` : ''}
+        ${a.warn ? `<div class="asset-row" style="margin-top:4px;background:rgba(248,81,73,0.07);padding:5px 8px;border-radius:4px;border-left:2px solid var(--danger);">
+          <span style="font-size:10px;color:var(--danger);line-height:1.4;">⚠ ${a.warn}</span>
+        </div>` : ''}
+      </div>`;
+    container.appendChild(card);
+  });
+}
+
+// ═══════════════════════════════════════════
+// RENDER CBOM JSON
+// ═══════════════════════════════════════════
+function renderCbom(assets, filename) {
+  const ts = new Date().toISOString().replace(/\.\d+Z/, 'Z');
+  const components = assets.map((a, i) => ({
+    name: a.name.replace(' ⚠',''),
+    type: 'cryptographic-asset',
+    'bom-ref': generateUUID(),
+    evidence: {
+      occurrences: [{ line: a.line, location: filename }]
+    },
+    cryptoProperties: {
+      oid: a.oid === '—' ? undefined : a.oid,
+      assetType: 'algorithm',
+      algorithmProperties: {
+        primitive: a.primitive,
+        ...(a.mode ? { mode: a.mode } : {}),
+        ...(a.keySize ? { parameterSetIdentifier: String(a.keySize) } : {}),
+        cryptoFunctions: a.type === 'cipher' ? ['encrypt','decrypt'] : a.type === 'hash' ? ['digest'] : ['generate']
+      }
+    }
+  }));
+
+  const cbom = {
+    bomFormat: 'CycloneDX',
+    specVersion: '1.6',
+    version: 1,
+    metadata: {
+      timestamp: ts,
+      tools: {
+        services: [{ name: 'CBOMkit', provider: { name: 'PQCA' } }]
+      },
+      component: {
+        name: filename.replace('.c','').replace('.cpp',''),
+        type: 'library',
+        language: 'C/C++'
+      }
+    },
+    components
+  };
+
+  window._cbomJson = JSON.stringify(cbom, null, 2);
+  const display = document.getElementById('cbom-display');
+  display.innerHTML = `<pre>${syntaxHighlightJson(window._cbomJson)}</pre>`;
+}
+
+function syntaxHighlightJson(json) {
+  return json
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, m => {
+      if (/^"/.test(m)) {
+        if (/:$/.test(m)) return `<span class="json-key">${m}</span>`;
+        return `<span class="json-string">${m}</span>`;
+      }
+      if (/true|false/.test(m)) return `<span class="json-bool">${m}</span>`;
+      if (/null/.test(m)) return `<span class="json-null">${m}</span>`;
+      return `<span class="json-num">${m}</span>`;
+    });
+}
+
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+function copyCbom() {
+  if (!window._cbomJson) { showToast('⚠ Run the scanner first'); return; }
+  navigator.clipboard.writeText(window._cbomJson).then(() => showToast('📋 CBOM JSON copied to clipboard'));
+}
+
+// ═══════════════════════════════════════════
+// RENDER OPA
+// ═══════════════════════════════════════════
+function renderOpa(assets) {
+  const policies = evaluateOpa(assets);
+  const grid = document.getElementById('policy-grid');
+  grid.innerHTML = '';
+
+  const fails = policies.filter(p => p.status === 'fail').length;
+  const warns = policies.filter(p => p.status === 'warn').length;
+  document.getElementById('opa-summary').textContent = `${fails} violation(s), ${warns} warning(s) across ${policies.length} policies`;
+
+  policies.forEach((p, i) => {
+    const card = document.createElement('div');
+    card.className = 'policy-card';
+    card.style.animationDelay = (i * 60) + 'ms';
+
+    const statusClass = p.status === 'fail' ? 'status-fail' : p.status === 'warn' ? 'status-warn' : 'status-pass';
+    const statusLabel = p.status === 'fail' ? '✗ VIOLATED' : p.status === 'warn' ? '⚠ WARNING' : '✓ PASS';
+
+    const findings = p.findings.map(f => `
+      <li class="policy-finding">
+        <span class="${f.ok ? 'finding-bullet-ok' : 'finding-bullet'}">${f.ok ? '✓' : '✗'}</span>
+        <span>${f.text}</span>
+      </li>`).join('');
+
+    card.innerHTML = `
+      <div class="policy-top">
+        <div class="policy-name">${p.name}</div>
+        <div class="policy-status ${statusClass}">${statusLabel}</div>
+      </div>
+      <div class="policy-desc">${p.desc}</div>
+      ${findings ? `<ul class="policy-findings">${findings}</ul>` : ''}`;
+    grid.appendChild(card);
+  });
+}
+
+// ═══════════════════════════════════════════
+// RENDER RESEARCH
+// ═══════════════════════════════════════════
+function renderResearch() {
+  const grid = document.getElementById('research-grid');
+  LIBRARIES.forEach((lib, i) => {
+    const card = document.createElement('div');
+    card.className = 'lib-card';
+    card.style.animationDelay = (i * 80) + 'ms';
+
+    const recClass = `rec-${lib.rec === 'red (ast)' ? 'red' : lib.rec}`;
+    const chips = lib.apis.map((a, j) => `<span class="api-chip ${j < 3 ? 'covered' : ''}">${a}</span>`).join('');
+
+    card.innerHTML = `
+      <div class="lib-header">
+        <div class="lib-name">${lib.name}</div>
+        <div class="lib-rec ${lib.rec === 'green' ? 'rec-green' : lib.rec === 'yellow' ? 'rec-yellow' : 'rec-red'}">${lib.recLabel}</div>
+      </div>
+      <div class="lib-style">${lib.style}</div>
+      <div class="lib-detail">${lib.detail}</div>
+      <div class="lib-metric-row">
+        <div class="lib-metric">
+          <div class="lib-metric-val">${lib.rules}</div>
+          <div class="lib-metric-label">New Rules</div>
+        </div>
+        <div class="lib-metric">
+          <div class="lib-metric-val">${lib.coverage}</div>
+          <div class="lib-metric-label">Coverage Est.</div>
+        </div>
+        <div class="lib-metric">
+          <div class="lib-metric-val">${lib.effort}</div>
+          <div class="lib-metric-label">Effort</div>
+        </div>
+      </div>
+      <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;">Key Detection Entry Points</div>
+      <div class="lib-apis">${chips}</div>`;
+    grid.appendChild(card);
+  });
+}
+
+// ═══════════════════════════════════════════
+// RENDER RULES
+// ═══════════════════════════════════════════
+function renderRules() {
+  const container = document.getElementById('rules-container');
+  RULES.forEach(cat => {
+    const section = document.createElement('div');
+    section.style.marginBottom = '20px';
+
+    const rulesHtml = cat.rules.map(r => `
+      <div style="padding:8px 12px;border-top:1px solid var(--border);font-size:11px;">
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:3px;">
+          <code style="color:var(--accent);font-weight:700;">${r.fn}</code>
+          <span style="color:var(--muted);font-size:9px;">→</span>
+          <span style="color:var(--warn);font-size:10px;">${r.asset}</span>
+        </div>
+        <div style="color:var(--muted);font-size:10px;line-height:1.5;">${r.detects}</div>
+      </div>`).join('');
+
+    section.innerHTML = `
+      <div class="rule-preview">
+        <div class="rule-preview-header">
+          <span style="color:var(--accent);font-weight:700;">📄 ${cat.category}</span>
+          <span style="margin-left:auto;">${cat.header}</span>
+        </div>
+        ${rulesHtml}
+      </div>`;
+    container.appendChild(section);
+  });
+
+  // Append a sample rule snippet
+  const sampleSection = document.createElement('div');
+  sampleSection.innerHTML = `
+    <div style="margin-bottom:8px;font-family:var(--font-display);font-size:14px;font-weight:700;">Sample Detection Rule (Java — DetectionRuleBuilder)</div>
+    <div class="rule-preview">
+      <div class="rule-preview-header">
+        <span style="color:var(--accent2);">OpenSslEvpCipherRules.java</span>
+        <span style="margin-left:auto;color:var(--muted);">EVP_EncryptInit_ex → AES-{bits}-{mode}</span>
+      </div>
+      <pre><span class="kw">new</span> <span class="type">DetectionRuleBuilder</span>&lt;<span class="type">CppTree</span>&gt;()
+    .createDetectionRule()
+    <span class="comment">// Match call to EVP_EncryptInit_ex anywhere in scope</span>
+    .forMethods(<span class="str">"EVP_EncryptInit_ex"</span>)
+    .shouldBeDetectedAs(<span class="kw">new</span> <span class="fn">CipherActionFactory</span>&lt;&gt;(<span class="type">CipherAction.Action.ENCRYPT</span>))
+    <span class="comment">// 2nd parameter is the EVP_CIPHER* — extract algorithm name</span>
+    .withMethodParameter(<span class="num">1</span>, <span class="str">"EVP_CIPHER *"</span>)
+        .shouldBeDetectedAs(<span class="kw">new</span> <span class="fn">AlgorithmValueFactory</span>&lt;&gt;(<span class="type">Cipher.class</span>))
+    .buildForContext(<span class="kw">new</span> <span class="fn">CipherContext</span>(Map.of(<span class="str">"Bundle"</span>, <span class="str">"OpenSSL"</span>)))
+    .inBundle(() -&gt; <span class="str">"OpenSSL"</span>)
+    .withDependingDetectionRules(List.of());</pre>
+    </div>
+
+    <div style="margin-top:16px;margin-bottom:8px;font-family:var(--font-display);font-size:14px;font-weight:700;">Sample OPA Policy (Rego — weak_cipher.rego)</div>
+    <div class="rule-preview">
+      <div class="rule-preview-header">
+        <span style="color:var(--warn);">opa/policies/weak_cipher.rego</span>
+      </div>
+      <pre><span class="kw">package</span> cbomkit.weak_cipher
+
+<span class="comment"># Algorithms that are classically broken or deprecated</span>
+<span class="type">WEAK_CIPHERS</span> := {
+    <span class="str">"RC4"</span>, <span class="str">"DES"</span>, <span class="str">"3DES"</span>, <span class="str">"Blowfish"</span>, <span class="str">"IDEA"</span>, <span class="str">"RC2"</span>
+}
+
+<span class="fn">findings</span>[finding] {
+    component := input.components[_]
+    component.type == <span class="str">"cryptographic-asset"</span>
+    props    := component.cryptoProperties
+    props.assetType == <span class="str">"algorithm"</span>
+    props.algorithmProperties.primitive == <span class="str">"block-cipher"</span>
+
+    <span class="comment"># Normalize: uppercase, strip mode suffix</span>
+    name := upper(component.name)
+    some weak in WEAK_CIPHERS
+    startswith(name, weak)
+
+    finding := {
+        <span class="str">"component"</span>: component.name,
+        <span class="str">"bom-ref"</span>:  component[<span class="str">"bom-ref"</span>],
+        <span class="str">"policy"</span>:   <span class="str">"weak_cipher"</span>,
+        <span class="str">"severity"</span>: <span class="str">"high"</span>,
+        <span class="str">"message"</span>:  sprintf(<span class="str">"%v is a weak cipher — replace with AES-256-GCM"</span>, [component.name])
+    }
+}</pre>
+    </div>`;
+  container.appendChild(sampleSection);
+}
+
+// ═══════════════════════════════════════════
+// TAB SWITCHING
+// ═══════════════════════════════════════════
+function switchTab(id) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  document.getElementById('panel-' + id).classList.add('active');
+}
+
+// ═══════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ═══════════════════════════════════════════
+// START
+// ═══════════════════════════════════════════
+init();
+</script>
+</body>
+</html>
